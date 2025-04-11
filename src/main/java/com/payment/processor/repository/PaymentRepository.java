@@ -45,6 +45,26 @@ public class PaymentRepository {
     }
 
     public void savePaymentRequest(PaymentRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Payment request cannot be null");
+        }
+        
+        if (request.getRequestId() == null || request.getRequestId().trim().isEmpty()) {
+            throw new IllegalArgumentException("Request ID is required");
+        }
+        
+        if (request.getPayerAccountNumber() == null || request.getPayerAccountNumber().trim().isEmpty()) {
+            throw new IllegalArgumentException("Payer account number is required");
+        }
+        
+        if (request.getPaymentType() == null || request.getPaymentType().trim().isEmpty()) {
+            throw new IllegalArgumentException("Payment type is required");
+        }
+        
+        if (request.getReceiverAccountNumber() == null || request.getReceiverAccountNumber().trim().isEmpty()) {
+            throw new IllegalArgumentException("Receiver account number is required");
+        }
+
         String sql = """
             INSERT INTO payment_requests 
             (request_id, payer_account_number, payment_type, amount, receiver_account_number, timestamp)
@@ -58,10 +78,17 @@ public class PaymentRepository {
             stmt.setString(3, request.getPaymentType());
             stmt.setDouble(4, request.getAmount());
             stmt.setString(5, request.getReceiverAccountNumber());
-            stmt.setTimestamp(6, java.sql.Timestamp.from(request.getTimestamp()));
+            
+            // Handle null timestamp by using current timestamp
+            Instant timestamp = request.getTimestamp();
+            if (timestamp == null) {
+                timestamp = Instant.now();
+            }
+            stmt.setTimestamp(6, java.sql.Timestamp.from(timestamp));
+            
             stmt.executeUpdate();
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to save payment request", e);
+            throw new RuntimeException("Failed to save payment request: " + e.getMessage(), e);
         }
     }
 
