@@ -49,7 +49,7 @@ class PaymentRepositoryTest {
             .requestId(null)
             .payerAccountNumber(null)
             .paymentType(null)
-            .amount(0)
+            .amount(0.0)
             .receiverAccountNumber(null)
             .timestamp(null)
             .replyTopic(null)

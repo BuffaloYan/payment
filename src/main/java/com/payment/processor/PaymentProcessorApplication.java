@@ -2,6 +2,7 @@ package com.payment.processor;
 
 import com.payment.processor.kafka.KafkaPaymentProcessor;
 import com.payment.processor.repository.PaymentRepository;
+import com.payment.processor.validation.ValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +27,7 @@ public class PaymentProcessorApplication {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 logger.info("Shutting down payment processor...");
                 processor.shutdown();
+                ValidationUtils.close();
             }));
             
             // Start processing

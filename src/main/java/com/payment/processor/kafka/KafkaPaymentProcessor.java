@@ -5,6 +5,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.payment.processor.model.PaymentRequest;
 import com.payment.processor.model.PaymentResponse;
 import com.payment.processor.repository.PaymentRepository;
+import com.payment.processor.validation.ValidationResult;
+import com.payment.processor.validation.ValidationUtils;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -99,25 +101,10 @@ public class KafkaPaymentProcessor {
         try {
             PaymentRequest request = objectMapper.readValue(record.value(), PaymentRequest.class);
             
-            // Validate request
-            if (request.getRequestId() == null || request.getRequestId().trim().isEmpty()) {
-                sendErrorResponse(request, "Request ID is required");
-                return;
-            }
-            if (request.getPayerAccountNumber() == null || request.getPayerAccountNumber().trim().isEmpty()) {
-                sendErrorResponse(request, "Payer account number is required");
-                return;
-            }
-            if (request.getPaymentType() == null || request.getPaymentType().trim().isEmpty()) {
-                sendErrorResponse(request, "Payment type is required");
-                return;
-            }
-            if (request.getReceiverAccountNumber() == null || request.getReceiverAccountNumber().trim().isEmpty()) {
-                sendErrorResponse(request, "Receiver account number is required");
-                return;
-            }
-            if (request.getReplyTopic() == null || request.getReplyTopic().trim().isEmpty()) {
-                sendErrorResponse(request, "Reply topic is required");
+            // Validate request using Hibernate Validator
+            ValidationResult validationResult = ValidationUtils.validate(request);
+            if (!validationResult.isValid()) {
+                sendErrorResponse(request, validationResult.getErrorMessage());
                 return;
             }
             
