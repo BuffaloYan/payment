@@ -30,7 +30,6 @@ public class PaymentRepository {
                 payer_account_number VARCHAR(50) NOT NULL,
                 payment_type VARCHAR(50) NOT NULL,
                 amount DECIMAL(15,2) NOT NULL,
-                receiver_account_number VARCHAR(50) NOT NULL,
                 timestamp TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -60,15 +59,11 @@ public class PaymentRepository {
         if (request.getPaymentType() == null || request.getPaymentType().trim().isEmpty()) {
             throw new IllegalArgumentException("Payment type is required");
         }
-        
-        if (request.getReceiverAccountNumber() == null || request.getReceiverAccountNumber().trim().isEmpty()) {
-            throw new IllegalArgumentException("Receiver account number is required");
-        }
 
         String sql = """
             INSERT INTO payment_requests 
-            (request_id, payer_account_number, payment_type, amount, receiver_account_number, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (request_id, payer_account_number, payment_type, amount, timestamp)
+            VALUES (?, ?, ?, ?, ?)
             """;
         
         try (Connection conn = dataSource.getConnection();
@@ -77,14 +72,13 @@ public class PaymentRepository {
             stmt.setString(2, request.getPayerAccountNumber());
             stmt.setString(3, request.getPaymentType());
             stmt.setDouble(4, request.getAmount());
-            stmt.setString(5, request.getReceiverAccountNumber());
             
             // Handle null timestamp by using current timestamp
             Instant timestamp = request.getTimestamp();
             if (timestamp == null) {
                 timestamp = Instant.now();
             }
-            stmt.setTimestamp(6, java.sql.Timestamp.from(timestamp));
+            stmt.setTimestamp(5, java.sql.Timestamp.from(timestamp));
             
             stmt.executeUpdate();
         } catch (SQLException e) {

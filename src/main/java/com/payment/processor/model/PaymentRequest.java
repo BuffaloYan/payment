@@ -23,9 +23,6 @@ public class PaymentRequest {
     @Positive(message = "Amount must be greater than 0")
     private Double amount;
 
-    @NotBlank(message = "Receiver account number is required")
-    private String receiverAccountNumber;
-
     @NotNull(message = "Timestamp is required")
     private Instant timestamp;
 
@@ -37,12 +34,11 @@ public class PaymentRequest {
     }
 
     public PaymentRequest(String requestId, String payerAccountNumber, String paymentType, double amount, 
-                         String receiverAccountNumber, Instant timestamp, String replyTopic) {
+                         Instant timestamp, String replyTopic) {
         this.requestId = requestId;
         this.payerAccountNumber = payerAccountNumber;
         this.paymentType = paymentType;
         this.amount = amount;
-        this.receiverAccountNumber = receiverAccountNumber;
         this.timestamp = timestamp;
         this.replyTopic = replyTopic;
     }

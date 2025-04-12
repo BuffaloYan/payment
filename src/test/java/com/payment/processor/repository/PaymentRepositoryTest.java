@@ -35,7 +35,6 @@ class PaymentRepositoryTest {
             .payerAccountNumber("PAYER123")
             .paymentType("TRANSFER")
             .amount(100.50)
-            .receiverAccountNumber("RECEIVER456")
             .timestamp(Instant.now())
             .replyTopic("payment-responses")
             .build();
@@ -50,7 +49,6 @@ class PaymentRepositoryTest {
             .payerAccountNumber(null)
             .paymentType(null)
             .amount(0.0)
-            .receiverAccountNumber(null)
             .timestamp(null)
             .replyTopic(null)
             .build();

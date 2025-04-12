@@ -65,7 +65,6 @@ class KafkaPaymentProcessorTest {
             .payerAccountNumber("PAYER123")
             .paymentType("TRANSFER")
             .amount(100.50)
-            .receiverAccountNumber("RECEIVER456")
             .timestamp(Instant.now())
             .replyTopic("payment-responses")
             .build();
@@ -171,7 +170,6 @@ class KafkaPaymentProcessorTest {
             .payerAccountNumber("PAYER123")
             .paymentType("TRANSFER")
             .amount(100.50)
-            .receiverAccountNumber("RECEIVER456")
             .timestamp(Instant.now())
             .replyTopic("payment-responses")
             .build();

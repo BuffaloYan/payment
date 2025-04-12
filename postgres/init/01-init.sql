@@ -4,14 +4,12 @@ CREATE TABLE IF NOT EXISTS payment_requests (
     payer_account_number VARCHAR(50) NOT NULL,
     payment_type VARCHAR(50) NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
-    receiver_account_number VARCHAR(50) NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_payment_requests_payer_account ON payment_requests(payer_account_number);
-CREATE INDEX IF NOT EXISTS idx_payment_requests_receiver_account ON payment_requests(receiver_account_number);
 CREATE INDEX IF NOT EXISTS idx_payment_requests_timestamp ON payment_requests(timestamp);
 
 -- Create a view for recent payments
@@ -21,7 +19,6 @@ SELECT
     payer_account_number,
     payment_type,
     amount,
-    receiver_account_number,
     timestamp,
     created_at
 FROM payment_requests
