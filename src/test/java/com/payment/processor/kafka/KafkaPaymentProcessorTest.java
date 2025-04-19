@@ -20,6 +20,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -84,6 +86,13 @@ class KafkaPaymentProcessorTest {
             .thenReturn(records)
             .thenReturn(emptyRecords);
 
+        // Use CountDownLatch to wait for processing
+        CountDownLatch latch = new CountDownLatch(1);
+        when(producer.send(any())).thenAnswer(invocation -> {
+            latch.countDown();
+            return null;
+        });
+
         // Start processing in a separate thread
         Thread processorThread = new Thread(() -> {
             try {
@@ -94,8 +103,8 @@ class KafkaPaymentProcessorTest {
         });
         processorThread.start();
 
-        // Wait a bit for processing
-        Thread.sleep(100);
+        // Wait for processing to complete
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
 
         // Verify repository was called exactly once
         verify(repository, times(1)).savePaymentRequest(request);
@@ -138,6 +147,17 @@ class KafkaPaymentProcessorTest {
             .thenReturn(records)
             .thenReturn(emptyRecords);
 
+        // Use CountDownLatch to wait for processing
+        CountDownLatch latch = new CountDownLatch(1);
+        when(producer.send(any())).thenAnswer(invocation -> {
+            ProducerRecord<String, String> sentRecord = invocation.getArgument(0);
+            PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
+            if ("error".equals(response.getStatus())) {
+                latch.countDown();
+            }
+            return null;
+        });
+
         // Start processing in a separate thread
         Thread processorThread = new Thread(() -> {
             try {
@@ -148,14 +168,25 @@ class KafkaPaymentProcessorTest {
         });
         processorThread.start();
 
-        // Wait a bit for processing
-        Thread.sleep(100);
+        // Wait for processing to complete
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
 
         // Verify repository was never called
         verify(repository, never()).savePaymentRequest(any());
 
-        // Verify producer was never called
-        verify(producer, never()).send(any());
+        // Verify producer was called exactly once with error response
+        ArgumentCaptor<ProducerRecord<String, String>> responseCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(producer, times(1)).send(responseCaptor.capture());
+
+        ProducerRecord<String, String> sentRecord = responseCaptor.getValue();
+        assertNotNull(sentRecord);
+        assertEquals("payment-responses", sentRecord.topic());
+        assertEquals("UNKNOWN", sentRecord.key());
+
+        PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
+        assertEquals("error", response.getStatus());
+        assertEquals("UNKNOWN", response.getRequestId());
+        assertEquals("Invalid JSON format", response.getErrorMessage());
 
         // Cleanup
         processor.shutdown();
@@ -189,6 +220,17 @@ class KafkaPaymentProcessorTest {
             .thenReturn(records)
             .thenReturn(emptyRecords);
 
+        // Use CountDownLatch to wait for processing
+        CountDownLatch latch = new CountDownLatch(1);
+        when(producer.send(any())).thenAnswer(invocation -> {
+            ProducerRecord<String, String> sentRecord = invocation.getArgument(0);
+            PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
+            if ("error".equals(response.getStatus())) {
+                latch.countDown();
+            }
+            return null;
+        });
+
         // Start processing in a separate thread
         Thread processorThread = new Thread(() -> {
             try {
@@ -199,8 +241,8 @@ class KafkaPaymentProcessorTest {
         });
         processorThread.start();
 
-        // Wait a bit for processing
-        Thread.sleep(100);
+        // Wait for processing to complete
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
 
         // Verify repository was never called
         verify(repository, never()).savePaymentRequest(any());

@@ -2,6 +2,8 @@ package com.payment.processor.model;
 
 import lombok.Data;
 import lombok.Builder;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -9,6 +11,8 @@ import java.time.Instant;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class PaymentRequest {
     @NotBlank(message = "Request ID is required")
     private String requestId;
@@ -28,18 +32,4 @@ public class PaymentRequest {
 
     @NotBlank(message = "Reply topic is required")
     private String replyTopic;
-
-    // Default constructor for Jackson
-    public PaymentRequest() {
-    }
-
-    public PaymentRequest(String requestId, String payerAccountNumber, String paymentType, double amount, 
-                         Instant timestamp, String replyTopic) {
-        this.requestId = requestId;
-        this.payerAccountNumber = payerAccountNumber;
-        this.paymentType = paymentType;
-        this.amount = amount;
-        this.timestamp = timestamp;
-        this.replyTopic = replyTopic;
-    }
 } 

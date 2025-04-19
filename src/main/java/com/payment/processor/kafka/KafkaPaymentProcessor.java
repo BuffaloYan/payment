@@ -104,13 +104,24 @@ public class KafkaPaymentProcessor {
             request = objectMapper.readValue(record.value(), PaymentRequest.class);
         } catch (Exception e) {
             logger.error("Error processing payment request: Invalid JSON format", e);
+            // Send error response for invalid JSON
+            PaymentRequest errorRequest = PaymentRequest.builder()
+                .requestId("UNKNOWN")
+                .replyTopic("payment-responses")
+                .build();
+            sendErrorResponse(errorRequest, "Invalid JSON format");
             return;
         }
             
         // Validate request using Hibernate Validator
         ValidationResult validationResult = ValidationUtils.validate(request);
         if (!validationResult.isValid()) {
-            sendErrorResponse(request, validationResult.getErrorMessage());
+            // Create a default request object for error response if requestId is null
+            PaymentRequest errorRequest = PaymentRequest.builder()
+                .requestId(request.getRequestId())
+                .replyTopic(request.getReplyTopic() != null ? request.getReplyTopic() : "payment-responses")
+                .build();
+            sendErrorResponse(errorRequest, validationResult.getErrorMessage());
             return;
         }
             

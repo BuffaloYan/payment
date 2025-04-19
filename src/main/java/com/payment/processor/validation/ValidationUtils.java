@@ -6,12 +6,19 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ValidationUtils {
+    private static final Logger logger = LoggerFactory.getLogger(ValidationUtils.class);
     private static final ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
     private static final Validator validator = factory.getValidator();
 
     public static <T> ValidationResult validate(T object) {
+        if (object == null) {
+            return ValidationResult.error("Request cannot be null");
+        }
+
         Set<ConstraintViolation<T>> violations = validator.validate(object);
         
         if (violations.isEmpty()) {
@@ -22,6 +29,7 @@ public class ValidationUtils {
             .map(ConstraintViolation::getMessage)
             .collect(Collectors.joining(", "));
             
+        logger.debug("Validation failed with errors: {}", errorMessage);
         return ValidationResult.error(errorMessage);
     }
 
