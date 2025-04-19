@@ -2,6 +2,7 @@ package com.payment.processor.kafka;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.payment.processor.model.PaymentRequest;
 import com.payment.processor.model.PaymentResponse;
 import com.payment.processor.repository.PaymentRepository;
@@ -98,43 +99,51 @@ public class KafkaPaymentProcessor {
     }
 
     private void processPaymentRequest(ConsumerRecord<String, String> record) {
+        PaymentRequest request;
         try {
-            PaymentRequest request = objectMapper.readValue(record.value(), PaymentRequest.class);
+            request = objectMapper.readValue(record.value(), PaymentRequest.class);
+        } catch (Exception e) {
+            logger.error("Error processing payment request: Invalid JSON format", e);
+            return;
+        }
             
-            // Validate request using Hibernate Validator
-            ValidationResult validationResult = ValidationUtils.validate(request);
-            if (!validationResult.isValid()) {
-                sendErrorResponse(request, validationResult.getErrorMessage());
-                return;
-            }
+        // Validate request using Hibernate Validator
+        ValidationResult validationResult = ValidationUtils.validate(request);
+        if (!validationResult.isValid()) {
+            sendErrorResponse(request, validationResult.getErrorMessage());
+            return;
+        }
             
-            logger.info("Processing payment request: {}", request.getRequestId());
+        logger.info("Processing payment request: {}", request.getRequestId());
             
-            // Save to database
-            repository.savePaymentRequest(request);
+        // Save to database
+        repository.savePaymentRequest(request);
             
-            // Generate invoice ID
-            String invoiceId = generateInvoiceId(request);
+        // Generate invoice ID
+        String invoiceId = generateInvoiceId(request);
             
+        try {
             // Create and send success response
             PaymentResponse response = PaymentResponse.builder()
                 .status("success")
                 .requestId(request.getRequestId())
                 .invoiceId(invoiceId)
                 .build();
-            
+                
             String responseJson = objectMapper.writeValueAsString(response);
             ProducerRecord<String, String> responseRecord = new ProducerRecord<>(
                 request.getReplyTopic(),
                 request.getRequestId(),
                 responseJson
             );
+            logger.info("Sending response to topic: {}", request.getReplyTopic());
             producer.send(responseRecord);
             
             logger.info("Successfully processed payment request: {}, invoiceId: {}", 
                 request.getRequestId(), invoiceId);
-        } catch (Exception e) {
-            logger.error("Error processing payment request", e);
+        } catch (JsonProcessingException e) {
+            logger.error("Error creating success response", e);
+            sendErrorResponse(request, "Error creating success response");
         }
     }
 
