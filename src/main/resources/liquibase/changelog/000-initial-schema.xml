@@ -32,4 +32,18 @@
             </column>
         </createTable>
     </changeSet>
+
+    <changeSet id="001" author="payment-processor">
+        <createIndex tableName="payment_requests" schemaName="payments" indexName="idx_payment_requests_request_id">
+            <column name="request_id"/>
+        </createIndex>
+        
+        <createIndex tableName="payment_requests" schemaName="payments" indexName="idx_payment_requests_payer_account">
+            <column name="payer_account_number"/>
+        </createIndex>
+        
+        <createIndex tableName="payment_requests" schemaName="payments" indexName="idx_payment_requests_timestamp">
+            <column name="timestamp"/>
+        </createIndex>
+    </changeSet>
 </databaseChangeLog> 
