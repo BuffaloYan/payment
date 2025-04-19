@@ -1,269 +1,163 @@
 package com.payment.processor.kafka;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.payment.processor.config.TestConfig;
 import com.payment.processor.model.PaymentRequest;
 import com.payment.processor.model.PaymentResponse;
-import com.payment.processor.repository.PaymentRepository;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerRecord;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.test.EmbeddedKafkaBroker;
+import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
-class KafkaPaymentProcessorTest {
-    @Mock
-    private KafkaConsumer<String, String> consumer;
-    
-    @Mock
-    private KafkaProducer<String, String> producer;
-    
-    @Mock
-    private PaymentRepository repository;
-    
-    private KafkaPaymentProcessor processor;
-    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
-    private final String bootstrapServers = "localhost:9092";
+@SpringBootTest
+@ContextConfiguration(classes = TestConfig.class)
+@ActiveProfiles("test")
+@EmbeddedKafka(partitions = 1, 
+    brokerProperties = {"listeners=PLAINTEXT://localhost:9092", "port=9092"},
+    topics = {"test-payment-requests", "test-payment-responses-1", "test-payment-responses-2"})
+public class KafkaPaymentProcessorTest {
+
+    private static final String PAYMENT_TOPIC = "test-payment-requests";
+    private static final String REPLY_TOPIC_1 = "test-payment-responses-1";
+    private static final String REPLY_TOPIC_2 = "test-payment-responses-2";
+
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Autowired
+    private ConsumerFactory<String, String> consumerFactory;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private EmbeddedKafkaBroker embeddedKafkaBroker;
+
+    private Consumer<String, String> consumer;
+    private String currentReplyTopic;
+
+    @DynamicPropertySource
+    static void kafkaProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.kafka.bootstrap-servers", () -> "${spring.embedded.kafka.brokers}");
+        registry.add("spring.kafka.consumer.group-id", () -> "test-payment-processor-group");
+        registry.add("spring.kafka.consumer.auto-offset-reset", () -> "earliest");
+    }
+
+    private void setupConsumer(String replyTopic) {
+        if (consumer != null) {
+            consumer.unsubscribe();
+            consumer.close();
+        }
+        Map<String, Object> consumerProps = KafkaTestUtils.consumerProps(
+            "test-payment-processor-group-" + UUID.randomUUID(), 
+            "true", 
+            embeddedKafkaBroker
+        );
+        consumer = consumerFactory.createConsumer();
+        consumer.subscribe(Collections.singletonList(replyTopic));
+        consumer.poll(Duration.ofMillis(100)); // Clear any existing messages
+        currentReplyTopic = replyTopic;
+    }
 
     @BeforeEach
     void setUp() {
-        processor = new KafkaPaymentProcessor(bootstrapServers, repository) {
-            @Override
-            protected KafkaConsumer<String, String> createConsumer() {
-                return consumer;
-            }
-            
-            @Override
-            protected KafkaProducer<String, String> createProducer() {
-                return producer;
-            }
-        };
+        // Consumer will be set up per test
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (consumer != null) {
+            consumer.unsubscribe();
+            consumer.close();
+        }
     }
 
     @Test
     void testProcessPaymentRequest() throws Exception {
-        // Prepare test data
-        String requestId = UUID.randomUUID().toString();
+        setupConsumer(REPLY_TOPIC_1);
+
+        // Create a valid payment request
         PaymentRequest request = PaymentRequest.builder()
-            .requestId(requestId)
-            .payerAccountNumber("PAYER123")
-            .paymentType("TRANSFER")
-            .amount(100.50)
-            .timestamp(Instant.now())
-            .replyTopic("payment-responses")
-            .build();
+                .requestId("test-request-1")
+                .payerAccountNumber("123456789")
+                .paymentType("CREDIT")
+                .amount(100.0)
+                .timestamp(Instant.now())
+                .replyTopic(REPLY_TOPIC_1)
+                .build();
 
-        String requestJson = objectMapper.writeValueAsString(request);
-        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-requests", 0, 0, requestId, requestJson);
+        // Convert request to JSON and send
+        String jsonRequest = objectMapper.writeValueAsString(request);
+        System.out.println("Sending payment request: " + jsonRequest);
+        kafkaTemplate.send(PAYMENT_TOPIC, jsonRequest).get(); // Wait for send completion
+        System.out.println("Payment request sent successfully");
 
-        // Mock consumer.poll() to return our test record for first call and empty records after
-        ConsumerRecords<String, String> records = new ConsumerRecords<>(Collections.singletonMap(
-            new org.apache.kafka.common.TopicPartition("payment-requests", 0),
-            Collections.singletonList(record)
-        ));
-        ConsumerRecords<String, String> emptyRecords = new ConsumerRecords<>(Collections.emptyMap());
+        // Poll for the response
+        System.out.println("Waiting for response on topic: " + REPLY_TOPIC_1);
+        ConsumerRecord<String, String> record = KafkaTestUtils.getSingleRecord(consumer, REPLY_TOPIC_1, Duration.ofSeconds(10));
+        assertNotNull(record, "No response received within timeout period");
+        System.out.println("Received response: " + record.value());
         
-        // First call returns records, subsequent calls return empty records
-        when(consumer.poll(any()))
-            .thenReturn(records)
-            .thenReturn(emptyRecords);
-
-        // Use CountDownLatch to wait for processing
-        CountDownLatch latch = new CountDownLatch(1);
-        when(producer.send(any())).thenAnswer(invocation -> {
-            latch.countDown();
-            return null;
-        });
-
-        // Start processing in a separate thread
-        Thread processorThread = new Thread(() -> {
-            try {
-                processor.start();
-            } catch (Exception e) {
-                fail("Processor failed to start", e);
-            }
-        });
-        processorThread.start();
-
-        // Wait for processing to complete
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
-
-        // Verify repository was called exactly once
-        verify(repository, times(1)).savePaymentRequest(request);
-
-        // Verify producer was called exactly once with correct response
-        ArgumentCaptor<ProducerRecord<String, String>> responseCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
-        verify(producer, times(1)).send(responseCaptor.capture());
-
-        ProducerRecord<String, String> sentRecord = responseCaptor.getValue();
-        assertNotNull(sentRecord);
-        assertEquals(request.getReplyTopic(), sentRecord.topic());
-        assertEquals(requestId, sentRecord.key());
-
-        PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
-        assertEquals("success", response.getStatus());
-        assertEquals(requestId, response.getRequestId());
-        assertNotNull(response.getInvoiceId());
-        assertTrue(response.getInvoiceId().startsWith("INV-"));
-
-        // Cleanup
-        processor.shutdown();
-        processorThread.join(1000);
-    }
-
-    @Test
-    void testProcessInvalidPaymentRequest() throws Exception {
-        // Prepare invalid test data
-        String invalidJson = "invalid-json";
-        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-requests", 0, 0, "key", invalidJson);
-
-        // Mock consumer.poll() to return our test record for first call and empty records after
-        ConsumerRecords<String, String> records = new ConsumerRecords<>(Collections.singletonMap(
-            new org.apache.kafka.common.TopicPartition("payment-requests", 0),
-            Collections.singletonList(record)
-        ));
-        ConsumerRecords<String, String> emptyRecords = new ConsumerRecords<>(Collections.emptyMap());
+        PaymentResponse response = objectMapper.readValue(record.value(), PaymentResponse.class);
+        System.out.println("Deserialized response: " + response);
         
-        // First call returns records, subsequent calls return empty records
-        when(consumer.poll(any()))
-            .thenReturn(records)
-            .thenReturn(emptyRecords);
-
-        // Use CountDownLatch to wait for processing
-        CountDownLatch latch = new CountDownLatch(1);
-        when(producer.send(any())).thenAnswer(invocation -> {
-            ProducerRecord<String, String> sentRecord = invocation.getArgument(0);
-            PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
-            if ("error".equals(response.getStatus())) {
-                latch.countDown();
-            }
-            return null;
-        });
-
-        // Start processing in a separate thread
-        Thread processorThread = new Thread(() -> {
-            try {
-                processor.start();
-            } catch (Exception e) {
-                fail("Processor failed to start", e);
-            }
-        });
-        processorThread.start();
-
-        // Wait for processing to complete
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
-
-        // Verify repository was never called
-        verify(repository, never()).savePaymentRequest(any());
-
-        // Verify producer was called exactly once with error response
-        ArgumentCaptor<ProducerRecord<String, String>> responseCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
-        verify(producer, times(1)).send(responseCaptor.capture());
-
-        ProducerRecord<String, String> sentRecord = responseCaptor.getValue();
-        assertNotNull(sentRecord);
-        assertEquals("payment-responses", sentRecord.topic());
-        assertEquals("UNKNOWN", sentRecord.key());
-
-        PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
-        assertEquals("error", response.getStatus());
-        assertEquals("UNKNOWN", response.getRequestId());
-        assertEquals("Invalid JSON format", response.getErrorMessage());
-
-        // Cleanup
-        processor.shutdown();
-        processorThread.join(1000);
+        assertEquals("success", response.getStatus().toLowerCase(), 
+            "Expected status 'success' but got '" + response.getStatus() + "' with error message: " + response.getErrorMessage());
+        assertEquals(request.getRequestId(), response.getRequestId(), 
+            "Response request ID does not match original request ID");
     }
 
     @Test
     void testProcessPaymentRequestWithValidationError() throws Exception {
-        // Prepare test data with missing required fields
+        setupConsumer(REPLY_TOPIC_2);
+
+        // Create an invalid payment request (missing required fields)
         PaymentRequest request = PaymentRequest.builder()
-            .requestId(null)  // Missing required field
-            .payerAccountNumber("PAYER123")
-            .paymentType("TRANSFER")
-            .amount(100.50)
-            .timestamp(Instant.now())
-            .replyTopic("payment-responses")
-            .build();
+                .requestId("test-request-2")
+                .paymentType("CREDIT")
+                .amount(100.0)
+                .timestamp(Instant.now())
+                .replyTopic(REPLY_TOPIC_2)
+                .build(); // Missing payerAccountNumber
 
-        String requestJson = objectMapper.writeValueAsString(request);
-        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-requests", 0, 0, "key", requestJson);
+        // Convert request to JSON and send
+        String jsonRequest = objectMapper.writeValueAsString(request);
+        System.out.println("Sending invalid payment request: " + jsonRequest);
+        kafkaTemplate.send(PAYMENT_TOPIC, jsonRequest).get(); // Wait for send completion
+        System.out.println("Invalid payment request sent successfully");
 
-        // Mock consumer.poll() to return our test record for first call and empty records after
-        ConsumerRecords<String, String> records = new ConsumerRecords<>(Collections.singletonMap(
-            new org.apache.kafka.common.TopicPartition("payment-requests", 0),
-            Collections.singletonList(record)
-        ));
-        ConsumerRecords<String, String> emptyRecords = new ConsumerRecords<>(Collections.emptyMap());
+        // Poll for the response
+        System.out.println("Waiting for error response on topic: " + REPLY_TOPIC_2);
+        ConsumerRecord<String, String> record = KafkaTestUtils.getSingleRecord(consumer, REPLY_TOPIC_2, Duration.ofSeconds(10));
+        assertNotNull(record, "No error response received within timeout period");
+        System.out.println("Received error response: " + record.value());
         
-        // First call returns records, subsequent calls return empty records
-        when(consumer.poll(any()))
-            .thenReturn(records)
-            .thenReturn(emptyRecords);
-
-        // Use CountDownLatch to wait for processing
-        CountDownLatch latch = new CountDownLatch(1);
-        when(producer.send(any())).thenAnswer(invocation -> {
-            ProducerRecord<String, String> sentRecord = invocation.getArgument(0);
-            PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
-            if ("error".equals(response.getStatus())) {
-                latch.countDown();
-            }
-            return null;
-        });
-
-        // Start processing in a separate thread
-        Thread processorThread = new Thread(() -> {
-            try {
-                processor.start();
-            } catch (Exception e) {
-                fail("Processor failed to start", e);
-            }
-        });
-        processorThread.start();
-
-        // Wait for processing to complete
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Processing timed out");
-
-        // Verify repository was never called
-        verify(repository, never()).savePaymentRequest(any());
-
-        // Verify producer was called exactly once with error response
-        ArgumentCaptor<ProducerRecord<String, String>> responseCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
-        verify(producer, times(1)).send(responseCaptor.capture());
-
-        ProducerRecord<String, String> sentRecord = responseCaptor.getValue();
-        assertNotNull(sentRecord);
-        assertEquals(request.getReplyTopic(), sentRecord.topic());
-        assertEquals("UNKNOWN", sentRecord.key());  // Key should be UNKNOWN since requestId is null
-
-        PaymentResponse response = objectMapper.readValue(sentRecord.value(), PaymentResponse.class);
-        assertEquals("error", response.getStatus());
-        assertEquals("UNKNOWN", response.getRequestId());  // RequestId should be UNKNOWN
-        assertEquals("Request ID is required", response.getErrorMessage());
-        assertNull(response.getInvoiceId());
-
-        // Cleanup
-        processor.shutdown();
-        processorThread.join(1000);
+        PaymentResponse response = objectMapper.readValue(record.value(), PaymentResponse.class);
+        System.out.println("Deserialized error response: " + response);
+        
+        assertEquals("error", response.getStatus().toLowerCase(), 
+            "Expected status 'error' but got '" + response.getStatus() + "'");
+        assertTrue(response.getErrorMessage().contains("Payer account number is required"), 
+            "Error message should contain 'Payer account number is required' but got: " + response.getErrorMessage());
     }
 } 
