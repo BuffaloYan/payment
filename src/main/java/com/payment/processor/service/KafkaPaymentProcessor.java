@@ -45,7 +45,7 @@ public class KafkaPaymentProcessor {
             logger.info("Serialized response JSON: {}", responseJson);
             
             logger.info("Sending payment response to topic {}: {}", finalRequest.getReplyTopic(), response);
-            kafkaTemplate.send(finalRequest.getReplyTopic(), responseJson).whenComplete((result, ex) -> {
+            kafkaTemplate.send(finalRequest.getReplyTopic(), finalRequest.getRequestId(), responseJson).whenComplete((result, ex) -> {
                 if (ex != null) {
                     logger.error("Failed to send response to topic {}: {}", finalRequest.getReplyTopic(), ex.getMessage());
                 } else {
@@ -64,7 +64,7 @@ public class KafkaPaymentProcessor {
                         .build();
                     String errorJson = objectMapper.writeValueAsString(errorResponse);
                     logger.info("Sending error response: {}", errorJson);
-                    kafkaTemplate.send(finalRequest.getReplyTopic(), errorJson).whenComplete((result, ex) -> {
+                    kafkaTemplate.send(finalRequest.getReplyTopic(), finalRequest.getRequestId(), errorJson).whenComplete((result, ex) -> {
                         if (ex != null) {
                             logger.error("Failed to send error response to topic {}: {}", finalRequest.getReplyTopic(), ex.getMessage());
                         } else {
